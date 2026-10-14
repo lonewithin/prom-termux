@@ -1,0 +1,13 @@
+
+[1;35m  ██████╗ ██████╗  ██████╗ ███╗   ███╗
+[1;35m  ██╔══██╗██╔══██╗██╔═══██╗████╗ ████║
+[1;95m  ██████╔╝██████╔╝██║   ██║██╔████╔██║
+[1;32m  ██╔═══╝ ██╔══██╗██║   ██║██║╚██╔╝██║
+[1;32m  ██║     ██║  ██║╚██████╔╝██║ ╚═╝ ██║
+[1;92m  ╚═╝     ╚═╝  ╚═╝ ╚═════╝ ╚═╝     ╚═╝[0m
+[1;37m  PROM Terminal[0m · [32mSolana degen & vibecoder[0m · @lonewithin
+
+  [35mprom-setup[0m   install git, node, python, ssh (+ optional bot clone)
+  [35mpkg install[0m  install packages    [35mpkg upgrade[0m  update all
+  Based on Termux (GPLv3) — https://termux.dev
+

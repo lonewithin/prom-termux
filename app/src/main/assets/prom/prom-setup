@@ -1,0 +1,15 @@
+#!/data/data/com.termux/files/usr/bin/bash
+# PROM Terminal first-run helper. Installs dev tools only. NEVER starts any trading.
+set -e
+G='\033[1;32m'; P='\033[1;35m'; N='\033[0m'
+echo -e "${P}PROM setup${N}: this will install git, nodejs, python, openssh."
+read -r -p "Continue? [Y/n] " a; [[ "$a" =~ ^[Nn] ]] && exit 0
+pkg update -y && pkg install -y git nodejs python openssh
+echo -e "${G}Tools installed.${N}"
+read -r -p "Clone lonewithin/sol-sniper-bot into ~/sol-sniper-bot? [y/N] " c
+if [[ "$c" =~ ^[Yy] ]]; then
+  if [ -d ~/sol-sniper-bot ]; then echo "~/sol-sniper-bot already exists, skipping."
+  else git clone https://github.com/lonewithin/sol-sniper-bot ~/sol-sniper-bot || echo "Clone failed (private repo? use a token or SSH key)."; fi
+  echo -e "Cloned only. Nothing was started. To run it yourself: cd ~/sol-sniper-bot && npm install, add your .env, then start it manually (paper mode first)."
+fi
+echo -e "${G}Done.${N} Type 'termux-setup-storage' to access phone storage."
