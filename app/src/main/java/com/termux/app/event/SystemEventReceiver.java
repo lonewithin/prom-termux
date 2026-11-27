@@ -53,6 +53,8 @@ public class SystemEventReceiver extends BroadcastReceiver {
 
     public synchronized void onActionBootCompleted(@NonNull Context context, @NonNull Intent intent) {
         TermuxShellManager.onActionBootCompleted(context, intent);
+        // PROM: start the foreground keep-alive service and ~/.termux/boot scripts.
+        com.termux.app.PromKeepAlive.start(context, true);
     }
 
     public synchronized void onActionPackageUpdated(@NonNull Context context, @NonNull Intent intent) {

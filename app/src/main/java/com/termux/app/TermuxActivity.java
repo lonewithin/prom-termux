@@ -277,6 +277,12 @@ public final class TermuxActivity extends AppCompatActivity implements ServiceCo
         // Send the {@link TermuxConstants#BROADCAST_TERMUX_OPENED} broadcast to notify apps that Termux
         // app has been opened.
         TermuxUtils.sendTermuxOpenedBroadcast(this);
+
+        // PROM: ask once the system battery-exemption dialog if not already granted,
+        // so Phone Master / Android is less likely to kill the keep-alive service.
+        if (!PermissionUtils.checkIfBatteryOptimizationsDisabled(this)) {
+            PermissionUtils.requestDisableBatteryOptimizations(this);
+        }
     }
 
     @Override

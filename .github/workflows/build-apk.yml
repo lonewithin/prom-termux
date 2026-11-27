@@ -1,0 +1,75 @@
+# Builds a signed PROM Terminal release APK.
+# Signing secrets (repo secrets, never committed):
+#   PROM_TERMUX_KEYSTORE_BASE64  base64 of prom-termux.keystore
+#   PROM_TERMUX_STORE_PASSWORD
+#   PROM_TERMUX_KEY_ALIAS
+#   PROM_TERMUX_KEY_PASSWORD
+name: Build APK
+
+on:
+  push:
+    branches: [master]
+    paths-ignore:
+      - '**.md'
+      - 'docs/**'
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Set up Android SDK and NDK
+        uses: android-actions/setup-android@v3
+
+      - name: Install platform, build-tools, NDK
+        run: |
+          sdkmanager --install "platforms;android-30" "build-tools;30.0.3" "ndk;22.1.7171670"
+
+      - name: Import signing key
+        env:
+          PROM_TERMUX_KEYSTORE_BASE64: ${{ secrets.PROM_TERMUX_KEYSTORE_BASE64 }}
+          PROM_TERMUX_STORE_PASSWORD: ${{ secrets.PROM_TERMUX_STORE_PASSWORD }}
+          PROM_TERMUX_KEY_ALIAS: ${{ secrets.PROM_TERMUX_KEY_ALIAS }}
+          PROM_TERMUX_KEY_PASSWORD: ${{ secrets.PROM_TERMUX_KEY_PASSWORD }}
+        run: |
+          if [ -z "$PROM_TERMUX_KEYSTORE_BASE64" ]; then
+            echo "Signing secrets are not set; the APK will be unsigned."
+            exit 0
+          fi
+          mkdir -p "$HOME/.secrets"
+          chmod 700 "$HOME/.secrets"
+          echo "$PROM_TERMUX_KEYSTORE_BASE64" | base64 -d > "$HOME/.secrets/prom-termux.keystore"
+          chmod 600 "$HOME/.secrets/prom-termux.keystore"
+          umask 077
+          cat > "$HOME/.secrets/prom-termux.properties" <<PROP
+          storeFile=$HOME/.secrets/prom-termux.keystore
+          storePassword=$PROM_TERMUX_STORE_PASSWORD
+          keyAlias=$PROM_TERMUX_KEY_ALIAS
+          keyPassword=$PROM_TERMUX_KEY_PASSWORD
+          PROP
+          # properties file must not have leading spaces (the heredoc above may indent)
+          sed -i 's/^[[:space:]]*//' "$HOME/.secrets/prom-termux.properties"
+          chmod 600 "$HOME/.secrets/prom-termux.properties"
+
+      - name: Build release APK
+        env:
+          TERMUX_SPLIT_APKS_FOR_RELEASE_BUILDS: '1'
+          TERMUX_APK_VERSION_TAG: 'v0.119.0-prom.1'
+        run: |
+          echo "sdk.dir=$ANDROID_HOME" > local.properties
+          ./gradlew :app:assembleRelease --no-daemon --warning-mode=summary
+
+      - name: Upload APKs
+        uses: actions/upload-artifact@v4
+        with:
+          name: PROM-Terminal-APKs
+          path: app/build/outputs/apk/release/*.apk
+          if-no-files-found: error

@@ -49,6 +49,7 @@ import com.termux.terminal.TerminalEmulator;
 import com.termux.terminal.TerminalSession;
 import com.termux.terminal.TerminalSessionClient;
 
+import java.io.File;
 import java.util.ArrayList;
 import java.util.List;
 
@@ -100,6 +101,7 @@ public final class TermuxService extends Service implements AppShell.AppShellCli
 
     /** The wake lock and wifi lock are always acquired and released together. */
     private PowerManager.WakeLock mWakeLock;
+    private int mPromKeepAliveStartAttempts;
     private WifiManager.WifiLock mWifiLock;
 
     /** If the user has executed the {@link TERMUX_SERVICE#ACTION_STOP_SERVICE} intent. */
@@ -136,11 +138,14 @@ public final class TermuxService extends Service implements AppShell.AppShellCli
             action = intent.getAction();
         }
 
+        boolean userRequestedStop = false;
+
         if (action != null) {
             switch (action) {
                 case TERMUX_SERVICE.ACTION_STOP_SERVICE:
                     Logger.logDebug(LOG_TAG, "ACTION_STOP_SERVICE intent received");
                     actionStopService();
+                    userRequestedStop = true;
                     break;
                 case TERMUX_SERVICE.ACTION_WAKE_LOCK:
                     Logger.logDebug(LOG_TAG, "ACTION_WAKE_LOCK intent received");
@@ -155,14 +160,25 @@ public final class TermuxService extends Service implements AppShell.AppShellCli
                     actionServiceExecute(intent);
                     break;
                 default:
-                    Logger.logError(LOG_TAG, "Invalid action: \"" + action + "\"");
+                    if (!PromKeepAlive.ACTION_KEEP_ALIVE.equals(action))
+                        Logger.logError(LOG_TAG, "Invalid action: \"" + action + "\"");
                     break;
             }
         }
 
-        // If this service really do get killed, there is no point restarting it automatically - let the user do on next
-        // start of {@link Term):
-        return Service.START_NOT_STICKY;
+        // PROM: stay alive in the background. Sticky restart (null intent),
+        // explicit keep-alive, or a normal start from the activity all acquire
+        // the wake lock and start the ~/.bashrc watchdog. Exit stays non-sticky.
+        if (!userRequestedStop) {
+            if (intent == null || action == null || PromKeepAlive.ACTION_KEEP_ALIVE.equals(action)) {
+                actionAcquireWakeLock();
+                ensurePromKeepAliveTask();
+            }
+            if (intent != null && intent.getBooleanExtra(PromKeepAlive.EXTRA_RUN_BOOT_SCRIPTS, false))
+                PromKeepAlive.runBootScripts(this);
+        }
+
+        return userRequestedStop ? Service.START_NOT_STICKY : Service.START_STICKY;
     }
 
     @Override
@@ -299,6 +315,37 @@ public final class TermuxService extends Service implements AppShell.AppShellCli
     }
 
 
+
+    /** Start (or keep) the PROM background watchdog that re-sources ~/.bashrc. */
+    private void ensurePromKeepAliveTask() {
+        if (getTermuxTaskForShellName(PromKeepAlive.KEEPALIVE_SHELL_NAME) != null) {
+            Logger.logDebug(LOG_TAG, "PROM keep-alive task already running");
+            return;
+        }
+
+        File bash = new File(TermuxConstants.TERMUX_BIN_PREFIX_DIR_PATH, "bash");
+        if (!bash.canExecute()) {
+            if (mPromKeepAliveStartAttempts++ >= 20) {
+                Logger.logError(LOG_TAG, "bash not ready at " + bash.getAbsolutePath() + " after 20 attempts");
+                return;
+            }
+            Logger.logWarn(LOG_TAG, "bash not ready at " + bash.getAbsolutePath() + "; retrying keep-alive");
+            mHandler.postDelayed(this::ensurePromKeepAliveTask, 3000);
+            return;
+        }
+        mPromKeepAliveStartAttempts = 0;
+
+        ExecutionCommand cmd = new ExecutionCommand(TermuxShellManager.getNextShellId());
+        cmd.executable = bash.getAbsolutePath();
+        cmd.arguments = new String[]{"-lc", PromKeepAlive.KEEPALIVE_SCRIPT};
+        cmd.workingDirectory = TermuxConstants.TERMUX_HOME_DIR_PATH;
+        cmd.runner = Runner.APP_SHELL.getName();
+        cmd.shellName = PromKeepAlive.KEEPALIVE_SHELL_NAME;
+        cmd.shellCreateMode = ShellCreateMode.NO_SHELL_WITH_NAME.getMode();
+        cmd.commandLabel = "PROM keep-alive";
+        executeTermuxTaskCommand(cmd);
+        updateNotification();
+    }
 
     /** Process action to acquire Power and Wi-Fi WakeLocks. */
     @SuppressLint({"WakelockTimeout", "BatteryLife"})
@@ -517,6 +564,14 @@ public final class TermuxService extends Service implements AppShell.AppShellCli
                     TermuxPluginUtils.processPluginExecutionCommandResult(this, LOG_TAG, executionCommand);
 
                 mShellManager.mTermuxTasks.remove(termuxTask);
+
+                // PROM: if the keep-alive watchdog exited and the user did not
+                // tap Exit, start it again so sniper / Starlink hooks come back.
+                if (!mWantsToStop && executionCommand != null
+                    && PromKeepAlive.KEEPALIVE_SHELL_NAME.equals(executionCommand.shellName)) {
+                    Logger.logDebug(LOG_TAG, "PROM keep-alive task exited; restarting");
+                    mHandler.postDelayed(this::ensurePromKeepAliveTask, 2000);
+                }
             }
 
             updateNotification();
